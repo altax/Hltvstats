@@ -13,7 +13,7 @@ export const supabase = createClient(
 );
 
 export interface DbTeam {
-  id: string;
+  id?: string;
   hltv_id: string;
   name: string;
   country: string;
@@ -22,6 +22,7 @@ export interface DbTeam {
   points: number;
   team_url: string;
   logo_url?: string;
+  color?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -151,31 +152,36 @@ export async function saveTeamWithMatches(
     rank: number;
     points?: number;
     teamUrl: string;
+    logo?: string;
+    color?: string;
   },
   matches: Array<{
     id: string;
     date: string;
     opponent: string;
+    opponentLogo?: string;
     event: string;
     result: string;
     matchUrl: string;
+    mapScore?: string;
   }>
 ): Promise<boolean> {
-  const teamId = hltvTeam.id;
+  const hltvId = hltvTeam.id;
 
   const dbTeam: DbTeam = {
-    id: teamId,
-    hltv_id: teamId,
+    hltv_id: hltvId,
     name: hltvTeam.name,
     country: hltvTeam.country,
     country_code: hltvTeam.countryCode,
     rank: hltvTeam.rank,
     points: hltvTeam.points || 0,
     team_url: hltvTeam.teamUrl,
+    logo_url: hltvTeam.logo,
+    color: hltvTeam.color,
   };
 
   const savedTeam = await upsertTeam(dbTeam);
-  if (!savedTeam) return false;
+  if (!savedTeam || !savedTeam.id) return false;
 
   const dbMatches: DbMatch[] = matches.map((match) => {
     const resultParts = match.result.split("-");
@@ -184,16 +190,54 @@ export async function saveTeamWithMatches(
     const isWin = team1Score > team2Score;
 
     return {
-      team_id: teamId,
+      team_id: savedTeam.id!,
       hltv_match_id: match.id,
       date: match.date,
       opponent: match.opponent,
+      opponent_logo: match.opponentLogo,
       event: match.event,
       result: match.result,
       is_win: isWin,
       match_url: match.matchUrl,
+      map_score: match.mapScore,
     };
   });
 
   return await insertMatches(dbMatches);
+}
+
+export async function updateTeamColor(hltvId: string, color: string): Promise<boolean> {
+  const { error } = await supabase
+    .from("teams")
+    .update({ color, updated_at: new Date().toISOString() })
+    .eq("hltv_id", hltvId);
+
+  if (error) {
+    console.error("[Supabase] Error updating team color:", error.message);
+    return false;
+  }
+  return true;
+}
+
+export async function getTeamWithDetails(hltvId: string): Promise<{
+  team: DbTeam | null;
+  matches: DbMatch[];
+  players: DbPlayer[];
+}> {
+  const { data: team } = await supabase
+    .from("teams")
+    .select("*")
+    .eq("hltv_id", hltvId)
+    .single();
+
+  if (!team) {
+    return { team: null, matches: [], players: [] };
+  }
+
+  const [matches, players] = await Promise.all([
+    getMatchesByTeam(team.id),
+    getPlayersByTeam(team.id),
+  ]);
+
+  return { team, matches, players };
 }
