@@ -1,3 +1,6 @@
+-- Включить расширение для генерации UUID (если еще не включено)
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- Таблица команд (teams)
 CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
