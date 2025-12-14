@@ -212,9 +212,10 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 20): Pro
       const team2 = result.team2;
       const matchResult = result.result;
       
-      const opponent = team1?.id === Number(teamId) 
-        ? team2?.name || "Unknown"
-        : team1?.name || "Unknown";
+      const isTeam1 = team1?.id === Number(teamId);
+      const opponent = isTeam1 
+        ? (team2?.name || "Unknown")
+        : (team1?.name || "Unknown");
       
       const scoreStr = matchResult 
         ? `${matchResult.team1}-${matchResult.team2}`

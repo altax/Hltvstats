@@ -38,7 +38,7 @@ export default function Home() {
       });
 
       const response = await apiRequest("GET", `/api/teams/${teamId}/matches`);
-      return response as MatchesResponse;
+      return await response.json() as MatchesResponse;
     },
     onSuccess: (data) => {
       setTeamsWithMatches(prev => {
