@@ -1,49 +1,76 @@
-import axios from "axios";
-import * as cheerio from "cheerio";
-import type { Element } from "domhandler";
+import { HLTV } from "hltv";
 import type { Team, Match } from "@shared/schema";
 
 const HLTV_BASE_URL = "https://www.hltv.org";
-const EGAMERSWORLD_URL = "https://egamersworld.com";
 
-const userAgents = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-];
-
-function getRandomUserAgent(): string {
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
+interface CachedData<T> {
+  data: T;
+  timestamp: number;
 }
 
-function createAxiosInstance() {
-  return axios.create({
-    headers: {
-      "User-Agent": getRandomUserAgent(),
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Accept-Encoding": "gzip, deflate, br",
-      "Connection": "keep-alive",
-      "Cache-Control": "max-age=0",
-      "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": '"Windows"',
-      "sec-fetch-dest": "document",
-      "sec-fetch-mode": "navigate",
-      "sec-fetch-site": "none",
-      "sec-fetch-user": "?1",
-      "upgrade-insecure-requests": "1",
-    },
-    timeout: 30000,
-  });
+const cache = new Map<string, CachedData<unknown>>();
+const CACHE_TTL = 10 * 60 * 1000;
+const MATCH_CACHE_TTL = 30 * 60 * 1000;
+
+export function getCached<T>(key: string): T | null {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data as T;
+  }
+  return null;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+export function setCache<T>(key: string, data: T): void {
+  cache.set(key, { data, timestamp: Date.now() });
 }
 
-const currentTop30Teams: Team[] = [
+export function clearCache(): void {
+  cache.clear();
+}
+
+class RateLimiter {
+  private requestTimestamps: number[] = [];
+  private maxRequestsPerMinute: number;
+  private minDelayMs: number;
+
+  constructor(maxRequestsPerMinute: number = 6, minDelayMs: number = 3000) {
+    this.maxRequestsPerMinute = maxRequestsPerMinute;
+    this.minDelayMs = minDelayMs;
+  }
+
+  async waitForSlot(): Promise<void> {
+    const now = Date.now();
+    const oneMinuteAgo = now - 60000;
+
+    this.requestTimestamps = this.requestTimestamps.filter(ts => ts > oneMinuteAgo);
+
+    if (this.requestTimestamps.length >= this.maxRequestsPerMinute) {
+      const oldestRequest = this.requestTimestamps[0];
+      const waitTime = oldestRequest + 60000 - now + 1000;
+      console.log(`[HLTV] Rate limit reached, waiting ${Math.ceil(waitTime / 1000)}s...`);
+      await this.delay(waitTime);
+    }
+
+    if (this.requestTimestamps.length > 0) {
+      const lastRequest = this.requestTimestamps[this.requestTimestamps.length - 1];
+      const timeSinceLastRequest = now - lastRequest;
+      if (timeSinceLastRequest < this.minDelayMs) {
+        const waitTime = this.minDelayMs - timeSinceLastRequest;
+        await this.delay(waitTime);
+      }
+    }
+
+    this.requestTimestamps.push(Date.now());
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+const rateLimiter = new RateLimiter(6, 3000);
+
+const fallbackTop30Teams: Team[] = [
   { id: "8297", rank: 1, name: "FURIA", country: "Brazil", countryCode: "br", points: 942, teamUrl: "https://www.hltv.org/team/8297/furia", matches: [], matchesLoaded: false, matchesLoading: false },
   { id: "9565", rank: 2, name: "Vitality", country: "France", countryCode: "fr", points: 870, teamUrl: "https://www.hltv.org/team/9565/vitality", matches: [], matchesLoaded: false, matchesLoading: false },
   { id: "12296", rank: 3, name: "Falcons", country: "Saudi Arabia", countryCode: "sa", points: 657, teamUrl: "https://www.hltv.org/team/12296/falcons", matches: [], matchesLoaded: false, matchesLoading: false },
@@ -76,283 +103,137 @@ const currentTop30Teams: Team[] = [
   { id: "12406", rank: 30, name: "Gentle Mates", country: "France", countryCode: "fr", points: 59, teamUrl: "https://www.hltv.org/team/12406/gentle-mates", matches: [], matchesLoaded: false, matchesLoading: false },
 ];
 
-async function scrapeFromEGamersWorld(): Promise<Team[]> {
-  try {
-    const axiosInstance = createAxiosInstance();
-    await delay(1000 + Math.random() * 1000);
-    
-    const response = await axiosInstance.get(`${EGAMERSWORLD_URL}/counterstrike/teams/ranking/hltv`);
-    const $ = cheerio.load(response.data);
-    
-    const teams: Team[] = [];
-    
-    $("table tbody tr").each((index: number, element: Element) => {
-      if (index >= 30) return false;
-      
-      const $row = $(element);
-      const cells = $row.find("td");
-      
-      if (cells.length < 3) return;
-      
-      const rankText = $(cells[0]).text().trim();
-      const rank = parseInt(rankText, 10) || index + 1;
-      
-      const $teamCell = $(cells[1]);
-      const teamLink = $teamCell.find("a");
-      const name = teamLink.text().trim();
-      const logoUrl = $teamCell.find("img").attr("src") || "";
-      
-      const pointsText = $(cells[2]).text().trim();
-      const points = parseInt(pointsText, 10) || undefined;
-      
-      const fallbackTeam = currentTop30Teams.find(t => 
-        t.name.toLowerCase() === name.toLowerCase() || 
-        t.name.toLowerCase().includes(name.toLowerCase()) ||
-        name.toLowerCase().includes(t.name.toLowerCase())
-      );
-      
-      const teamId = fallbackTeam?.id || `team-${rank}`;
-      const countryCode = fallbackTeam?.countryCode || "xx";
-      const country = fallbackTeam?.country || "Unknown";
-      const hltvTeamUrl = fallbackTeam?.teamUrl || `${HLTV_BASE_URL}/team/${teamId}/${name.toLowerCase().replace(/\s+/g, '-')}`;
-      
-      teams.push({
-        id: teamId,
-        rank,
-        name,
-        logo: logoUrl || undefined,
-        country,
-        countryCode,
-        points,
-        teamUrl: hltvTeamUrl,
-        matches: [],
-        matchesLoaded: false,
-        matchesLoading: false,
-      });
-    });
-    
-    return teams;
-  } catch (error) {
-    console.error("Error scraping from EGamersWorld:", (error as Error).message);
-    return [];
-  }
-}
-
-async function scrapeFromHLTV(): Promise<Team[]> {
-  try {
-    const axiosInstance = createAxiosInstance();
-    await delay(1500 + Math.random() * 1500);
-    
-    const response = await axiosInstance.get(`${HLTV_BASE_URL}/ranking/teams`);
-    const $ = cheerio.load(response.data);
-    
-    const teams: Team[] = [];
-    
-    $(".ranked-team").each((index: number, element: Element) => {
-      if (index >= 30) return false;
-      
-      const $team = $(element);
-      
-      const rankText = $team.find(".position").text().trim();
-      const rank = parseInt(rankText.replace("#", ""), 10) || index + 1;
-      
-      const name = $team.find(".name").text().trim() || 
-                   $team.find(".teamName").text().trim() ||
-                   `Team ${rank}`;
-      
-      const teamLink = $team.find("a.moreLink").attr("href") || 
-                       $team.find(".lineup-con a").attr("href") || 
-                       "";
-      const teamUrl = teamLink ? `${HLTV_BASE_URL}${teamLink}` : "";
-      
-      const teamIdMatch = teamLink.match(/\/team\/(\d+)\//);
-      const id = teamIdMatch ? teamIdMatch[1] : `team-${rank}`;
-      
-      const logoUrl = $team.find(".team-logo img").attr("src") || 
-                      $team.find("img.logo").attr("src") || 
-                      "";
-      
-      const countryFlag = $team.find(".flag").attr("src") || "";
-      const countryMatch = countryFlag.match(/\/(\w+)\.gif$/);
-      let countryCode = "";
-      let country = "";
-      
-      if (countryMatch) {
-        countryCode = countryMatch[1].toLowerCase();
-        country = countryCode.toUpperCase();
-      }
-      
-      const countryTitle = $team.find(".flag").attr("title") || "";
-      if (countryTitle) {
-        country = countryTitle;
-      }
-      
-      const pointsText = $team.find(".points").text().trim();
-      const pointsMatch = pointsText.match(/(\d+)/);
-      const points = pointsMatch ? parseInt(pointsMatch[1], 10) : undefined;
-
-      teams.push({
-        id,
-        rank,
-        name,
-        logo: logoUrl || undefined,
-        country: country || "Unknown",
-        countryCode: countryCode || "xx",
-        points,
-        teamUrl,
-        matches: [],
-        matchesLoaded: false,
-        matchesLoading: false,
-      });
-    });
-
-    return teams;
-  } catch (error) {
-    console.error("Error scraping from HLTV:", (error as Error).message);
-    return [];
-  }
+function getCountryCode(country: string): string {
+  const countryMap: Record<string, string> = {
+    "Brazil": "br",
+    "France": "fr",
+    "Saudi Arabia": "sa",
+    "Europe": "eu",
+    "Mongolia": "mn",
+    "Russia": "ru",
+    "Ukraine": "ua",
+    "Denmark": "dk",
+    "United States": "us",
+    "Portugal": "pt",
+    "Sweden": "se",
+    "Turkey": "tr",
+    "China": "cn",
+    "Germany": "de",
+    "Poland": "pl",
+    "Finland": "fi",
+    "Bosnia and Herzegovina": "ba",
+    "Kazakhstan": "kz",
+    "Argentina": "ar",
+    "Australia": "au",
+    "Canada": "ca",
+    "United Kingdom": "gb",
+    "Norway": "no",
+    "Netherlands": "nl",
+    "Spain": "es",
+    "Italy": "it",
+  };
+  return countryMap[country] || "xx";
 }
 
 export async function scrapeTop30Teams(): Promise<Team[]> {
-  let teams = await scrapeFromEGamersWorld();
-  
-  if (teams.length === 0) {
-    console.log("EGamersWorld scraping failed, trying HLTV directly...");
-    teams = await scrapeFromHLTV();
+  const cacheKey = "teams-ranking";
+  const cached = getCached<Team[]>(cacheKey);
+  if (cached) {
+    console.log("[HLTV] Returning cached team ranking");
+    return cached;
   }
-  
-  if (teams.length === 0) {
-    console.log("All scraping methods failed. Using cached HLTV ranking data (December 2025).");
-    return [...currentTop30Teams];
-  }
-  
-  console.log(`Successfully scraped ${teams.length} teams from live source`);
-  return teams;
-}
 
-const matchRequestTimestamps: number[] = [];
-const MAX_REQUESTS_PER_MINUTE = 3;
-const MATCH_CACHE_TTL = 30 * 60 * 1000;
+  try {
+    console.log("[HLTV] Fetching team ranking via HLTV library...");
+    await rateLimiter.waitForSlot();
+    
+    const ranking = await HLTV.getTeamRanking();
+    
+    const teams: Team[] = ranking.slice(0, 30).map((rankedTeam: any, index: number) => {
+      const teamData = rankedTeam.team;
+      const location = teamData.location || teamData.country;
+      const countryName = typeof location === 'object' ? location.name : (location || "Unknown");
+      const countryCode = getCountryCode(countryName);
+      
+      return {
+        id: String(teamData.id),
+        rank: index + 1,
+        name: teamData.name,
+        logo: undefined,
+        country: countryName,
+        countryCode,
+        points: rankedTeam.points,
+        teamUrl: `${HLTV_BASE_URL}/team/${teamData.id}/${teamData.name.toLowerCase().replace(/\s+/g, '-')}`,
+        matches: [],
+        matchesLoaded: false,
+        matchesLoading: false,
+      };
+    });
 
-async function waitForRateLimit(): Promise<void> {
-  const now = Date.now();
-  const oneMinuteAgo = now - 60000;
-  
-  while (matchRequestTimestamps.length > 0 && matchRequestTimestamps[0] < oneMinuteAgo) {
-    matchRequestTimestamps.shift();
+    console.log(`[HLTV] Successfully fetched ${teams.length} teams from HLTV`);
+    setCache(cacheKey, teams);
+    return teams;
+  } catch (error) {
+    console.error("[HLTV] Error fetching team ranking:", (error as Error).message);
+    console.log("[HLTV] Using fallback cached data");
+    return [...fallbackTop30Teams];
   }
-  
-  if (matchRequestTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
-    const oldestRequest = matchRequestTimestamps[0];
-    const waitTime = oldestRequest + 60000 - now + 1000;
-    console.log(`Rate limit reached, waiting ${Math.ceil(waitTime / 1000)}s...`);
-    await delay(waitTime);
-  }
-  
-  matchRequestTimestamps.push(Date.now());
 }
 
 export async function scrapeTeamMatches(teamId: string, limit: number = 20): Promise<Match[]> {
   const cacheKey = `matches-${teamId}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached) {
-    console.log(`Returning cached matches for team ${teamId}`);
+    console.log(`[HLTV] Returning cached matches for team ${teamId}`);
     return cached;
   }
 
   try {
-    await waitForRateLimit();
+    console.log(`[HLTV] Fetching results for team ${teamId}...`);
+    await rateLimiter.waitForSlot();
     
-    const axiosInstance = createAxiosInstance();
-    await delay(2000 + Math.random() * 2000);
+    const results = await HLTV.getResults({ teamIds: [Number(teamId)] });
     
-    const response = await axiosInstance.get(`${HLTV_BASE_URL}/results?team=${teamId}`);
-    const $ = cheerio.load(response.data);
-    
-    const matches: Match[] = [];
-    let currentDate = "";
-    
-    $(".results-sublist").each((_: number, sublist: Element) => {
-      const $sublist = $(sublist);
-      const headline = $sublist.find(".standard-headline").first().text().trim();
-      const dateMatch = headline.match(/Results for (.+)/i);
-      if (dateMatch) {
-        currentDate = dateMatch[1];
-      }
+    const matches: Match[] = results.slice(0, limit).map((result: any) => {
+      const team1 = result.team1;
+      const team2 = result.team2;
+      const matchResult = result.result;
       
-      $sublist.find(".result-con").each((index: number, element: Element) => {
-        if (matches.length >= limit) return false;
-        
-        const $match = $(element);
-        const $result = $match.find("a.a-reset");
-        
-        const matchLink = $result.attr("href") || "";
-        const matchUrl = matchLink ? `${HLTV_BASE_URL}${matchLink}` : "";
-        
-        const matchIdMatch = matchLink.match(/\/matches\/(\d+)\//);
-        const id = matchIdMatch ? matchIdMatch[1] : `match-${matches.length}`;
-        
-        const team1 = $match.find(".team1 .team").text().trim();
-        const team2 = $match.find(".team2 .team").text().trim();
-        
-        const score1 = $match.find(".team1 .score-won, .team1 .score-lost").text().trim();
-        const score2 = $match.find(".team2 .score-won, .team2 .score-lost").text().trim();
-        
-        let result = "";
-        if (score1 && score2) {
-          result = `${score1}-${score2}`;
-        }
-        
-        const event = $match.find(".event-name").text().trim() || 
-                      $match.find(".event .name").text().trim() || 
-                      "Unknown Event";
-        
-        matches.push({
-          id,
-          date: currentDate || "Unknown date",
-          opponent: team2 || team1 || "Unknown",
-          event,
-          result,
-          matchUrl,
-        });
-      });
+      const opponent = team1?.id === Number(teamId) 
+        ? team2?.name || "Unknown"
+        : team1?.name || "Unknown";
+      
+      const scoreStr = matchResult 
+        ? `${matchResult.team1}-${matchResult.team2}`
+        : "N/A";
+
+      const date = result.date 
+        ? new Date(result.date).toLocaleDateString("en-US", { 
+            year: "numeric", 
+            month: "long", 
+            day: "numeric" 
+          })
+        : "Unknown date";
+
+      const eventName = result.event?.name || result.eventName || "Unknown Event";
+
+      return {
+        id: String(result.id),
+        date,
+        opponent,
+        opponentLogo: undefined,
+        event: eventName,
+        result: scoreStr,
+        matchUrl: `${HLTV_BASE_URL}/matches/${result.id}/${team1?.name?.toLowerCase().replace(/\s+/g, '-') || 'team1'}-vs-${team2?.name?.toLowerCase().replace(/\s+/g, '-') || 'team2'}`,
+        mapScore: undefined,
+      };
     });
 
-    if (matches.length > 0) {
-      const result = matches.slice(0, limit);
-      setCache(cacheKey, result);
-      console.log(`Successfully scraped ${result.length} matches for team ${teamId}`);
-      return result;
-    }
-    
-    console.log(`No matches found for team ${teamId}`);
-    return [];
+    console.log(`[HLTV] Successfully fetched ${matches.length} matches for team ${teamId}`);
+    setCache(cacheKey, matches);
+    return matches;
   } catch (error) {
-    console.error(`Error scraping matches for team ${teamId}:`, (error as Error).message);
+    console.error(`[HLTV] Error fetching matches for team ${teamId}:`, (error as Error).message);
     return [];
   }
-}
-
-interface CachedData<T> {
-  data: T;
-  timestamp: number;
-}
-
-const cache = new Map<string, CachedData<unknown>>();
-const CACHE_TTL = 10 * 60 * 1000;
-
-export function getCached<T>(key: string): T | null {
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data as T;
-  }
-  return null;
-}
-
-export function setCache<T>(key: string, data: T): void {
-  cache.set(key, { data, timestamp: Date.now() });
-}
-
-export function clearCache(): void {
-  cache.clear();
 }
