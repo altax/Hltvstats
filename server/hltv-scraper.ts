@@ -151,12 +151,25 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
     
     const teams: Team[] = ranking.slice(0, 30).map((rankedTeam: any, index: number) => {
       const teamData = rankedTeam.team;
+      const teamId = String(teamData.id);
+      
+      const fallback = fallbackTop30Teams.find(t => 
+        t.name.toLowerCase() === teamData.name.toLowerCase() ||
+        t.name.toLowerCase().includes(teamData.name.toLowerCase()) ||
+        teamData.name.toLowerCase().includes(t.name.toLowerCase())
+      );
+      
       const location = teamData.location || teamData.country;
-      const countryName = typeof location === 'object' ? location.name : (location || "Unknown");
-      const countryCode = getCountryCode(countryName);
+      let countryName = typeof location === 'object' ? location.name : (location || null);
+      let countryCode = countryName ? getCountryCode(countryName) : null;
+      
+      if (!countryName || countryCode === "xx") {
+        countryName = fallback?.country || "Unknown";
+        countryCode = fallback?.countryCode || "xx";
+      }
       
       return {
-        id: String(teamData.id),
+        id: teamId,
         rank: index + 1,
         name: teamData.name,
         logo: undefined,
@@ -181,10 +194,10 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
 }
 
 export async function scrapeTeamMatches(teamId: string, limit: number = 20): Promise<Match[]> {
-  const cacheKey = `matches-${teamId}`;
+  const cacheKey = `matches-${teamId}-${limit}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached) {
-    console.log(`[HLTV] Returning cached matches for team ${teamId}`);
+    console.log(`[HLTV] Returning cached matches for team ${teamId} (limit: ${limit})`);
     return cached;
   }
 
