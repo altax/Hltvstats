@@ -90,6 +90,93 @@ export async function registerRoutes(
     }
   });
 
+  // Sync all top 30 teams to Supabase
+  app.post("/api/db/sync-all", async (req, res) => {
+    try {
+      console.log("[Sync] Starting to sync all teams to Supabase...");
+      
+      // Get teams from HLTV
+      const cacheKey = "teams-top30";
+      let teamsResponse = getCached<TeamsResponse>(cacheKey);
+      
+      if (!teamsResponse) {
+        const teams = await scrapeTop30Teams();
+        teamsResponse = { teams, lastUpdated: new Date().toISOString() };
+        setCache(cacheKey, teamsResponse);
+      }
+      
+      const results: { team: string; success: boolean; error?: string }[] = [];
+      
+      for (const team of teamsResponse.teams) {
+        try {
+          console.log(`[Sync] Processing team: ${team.name}`);
+          
+          // Get matches for this team
+          const matchesCacheKey = `matches-${team.id}-100`;
+          let matchesData = getCached<MatchesResponse>(matchesCacheKey);
+          
+          if (!matchesData) {
+            const matches = await scrapeTeamMatches(team.id, 50);
+            matchesData = { teamId: team.id, matches };
+            setCache(matchesCacheKey, matchesData);
+          }
+          
+          // Save to Supabase
+          const success = await saveTeamWithMatches(
+            {
+              id: team.id,
+              name: team.name,
+              country: team.country,
+              countryCode: team.countryCode,
+              rank: team.rank,
+              points: team.points,
+              teamUrl: team.teamUrl,
+              logo: team.logo,
+            },
+            matchesData.matches.map(m => ({
+              id: m.id,
+              date: m.date,
+              opponent: m.opponent,
+              opponentLogo: m.opponentLogo,
+              event: m.event,
+              result: m.result,
+              matchUrl: m.matchUrl,
+              mapScore: m.mapScore,
+            }))
+          );
+          
+          results.push({ team: team.name, success });
+          console.log(`[Sync] ${team.name}: ${success ? 'OK' : 'FAILED'}`);
+          
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error(`[Sync] Error syncing ${team.name}:`, error);
+          results.push({ 
+            team: team.name, 
+            success: false, 
+            error: error instanceof Error ? error.message : "Unknown error" 
+          });
+        }
+      }
+      
+      const successCount = results.filter(r => r.success).length;
+      console.log(`[Sync] Completed: ${successCount}/${results.length} teams synced`);
+      
+      res.json({ 
+        success: true, 
+        message: `Synced ${successCount}/${results.length} teams`,
+        results 
+      });
+    } catch (error) {
+      console.error("Error syncing teams:", error);
+      res.status(500).json({ 
+        error: "Failed to sync teams",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Supabase endpoints - get all teams from database
   app.get("/api/db/teams", async (req, res) => {
     try {
