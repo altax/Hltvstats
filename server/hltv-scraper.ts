@@ -230,10 +230,41 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
   return teams;
 }
 
-export async function scrapeTeamMatches(teamId: string, limit: number = 100): Promise<Match[]> {
+const matchRequestTimestamps: number[] = [];
+const MAX_REQUESTS_PER_MINUTE = 3;
+const MATCH_CACHE_TTL = 30 * 60 * 1000;
+
+async function waitForRateLimit(): Promise<void> {
+  const now = Date.now();
+  const oneMinuteAgo = now - 60000;
+  
+  while (matchRequestTimestamps.length > 0 && matchRequestTimestamps[0] < oneMinuteAgo) {
+    matchRequestTimestamps.shift();
+  }
+  
+  if (matchRequestTimestamps.length >= MAX_REQUESTS_PER_MINUTE) {
+    const oldestRequest = matchRequestTimestamps[0];
+    const waitTime = oldestRequest + 60000 - now + 1000;
+    console.log(`Rate limit reached, waiting ${Math.ceil(waitTime / 1000)}s...`);
+    await delay(waitTime);
+  }
+  
+  matchRequestTimestamps.push(Date.now());
+}
+
+export async function scrapeTeamMatches(teamId: string, limit: number = 20): Promise<Match[]> {
+  const cacheKey = `matches-${teamId}`;
+  const cached = getCached<Match[]>(cacheKey);
+  if (cached) {
+    console.log(`Returning cached matches for team ${teamId}`);
+    return cached;
+  }
+
   try {
+    await waitForRateLimit();
+    
     const axiosInstance = createAxiosInstance();
-    await delay(500 + Math.random() * 500);
+    await delay(2000 + Math.random() * 2000);
     
     const response = await axiosInstance.get(`${HLTV_BASE_URL}/results?team=${teamId}`);
     const $ = cheerio.load(response.data);
@@ -288,8 +319,10 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 100): Pr
     });
 
     if (matches.length > 0) {
-      console.log(`Successfully scraped ${matches.length} matches for team ${teamId}`);
-      return matches.slice(0, limit);
+      const result = matches.slice(0, limit);
+      setCache(cacheKey, result);
+      console.log(`Successfully scraped ${result.length} matches for team ${teamId}`);
+      return result;
     }
     
     console.log(`No matches found for team ${teamId}`);
