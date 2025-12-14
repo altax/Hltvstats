@@ -1,120 +1,154 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
+import type { Element } from "domhandler";
 import type { Team, Match } from "@shared/schema";
 
 const HLTV_BASE_URL = "https://www.hltv.org";
+const EGAMERSWORLD_URL = "https://egamersworld.com";
 
-const axiosInstance = axios.create({
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-    "Cache-Control": "no-cache",
-  },
-  timeout: 30000,
-});
+const userAgents = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+];
+
+function getRandomUserAgent(): string {
+  return userAgents[Math.floor(Math.random() * userAgents.length)];
+}
+
+function createAxiosInstance() {
+  return axios.create({
+    headers: {
+      "User-Agent": getRandomUserAgent(),
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Connection": "keep-alive",
+      "Cache-Control": "max-age=0",
+      "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+      "sec-ch-ua-mobile": "?0",
+      "sec-ch-ua-platform": '"Windows"',
+      "sec-fetch-dest": "document",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-site": "none",
+      "sec-fetch-user": "?1",
+      "upgrade-insecure-requests": "1",
+    },
+    timeout: 30000,
+  });
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const top30TeamsData: Team[] = [
-  { id: "4608", rank: 1, name: "Natus Vincere", country: "Ukraine", countryCode: "ua", points: 914, teamUrl: "https://www.hltv.org/team/4608/natus-vincere", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6667", rank: 2, name: "FaZe", country: "Europe", countryCode: "eu", points: 841, teamUrl: "https://www.hltv.org/team/6667/faze", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "9565", rank: 3, name: "G2", country: "Europe", countryCode: "eu", points: 738, teamUrl: "https://www.hltv.org/team/9565/g2", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "5995", rank: 4, name: "Vitality", country: "France", countryCode: "fr", points: 689, teamUrl: "https://www.hltv.org/team/5995/vitality", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "5752", rank: 5, name: "MOUZ", country: "Europe", countryCode: "eu", points: 614, teamUrl: "https://www.hltv.org/team/5752/mouz", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "4869", rank: 6, name: "ENCE", country: "Finland", countryCode: "fi", points: 523, teamUrl: "https://www.hltv.org/team/4869/ence", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "7020", rank: 7, name: "Heroic", country: "Denmark", countryCode: "dk", points: 487, teamUrl: "https://www.hltv.org/team/7020/heroic", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6673", rank: 8, name: "Cloud9", country: "Europe", countryCode: "eu", points: 465, teamUrl: "https://www.hltv.org/team/6673/cloud9", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "5378", rank: 9, name: "Spirit", country: "Russia", countryCode: "ru", points: 442, teamUrl: "https://www.hltv.org/team/5378/spirit", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "5973", rank: 10, name: "Liquid", country: "United States", countryCode: "us", points: 398, teamUrl: "https://www.hltv.org/team/5973/liquid", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6651", rank: 11, name: "Astralis", country: "Denmark", countryCode: "dk", points: 367, teamUrl: "https://www.hltv.org/team/6651/astralis", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "4411", rank: 12, name: "NIP", country: "Sweden", countryCode: "se", points: 341, teamUrl: "https://www.hltv.org/team/4411/nip", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "7532", rank: 13, name: "BIG", country: "Germany", countryCode: "de", points: 324, teamUrl: "https://www.hltv.org/team/7532/big", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "11893", rank: 14, name: "The MongolZ", country: "Mongolia", countryCode: "mn", points: 298, teamUrl: "https://www.hltv.org/team/11893/the-mongolz", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6665", rank: 15, name: "Complexity", country: "United States", countryCode: "us", points: 276, teamUrl: "https://www.hltv.org/team/6665/complexity", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "4494", rank: 16, name: "Fnatic", country: "United Kingdom", countryCode: "gb", points: 254, teamUrl: "https://www.hltv.org/team/4494/fnatic", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "10503", rank: 17, name: "3DMAX", country: "France", countryCode: "fr", points: 243, teamUrl: "https://www.hltv.org/team/10503/3dmax", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6118", rank: 18, name: "Monte", country: "Europe", countryCode: "eu", points: 231, teamUrl: "https://www.hltv.org/team/6118/monte", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "11501", rank: 19, name: "FURIA", country: "Brazil", countryCode: "br", points: 218, teamUrl: "https://www.hltv.org/team/11501/furia", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "8637", rank: 20, name: "GamerLegion", country: "Europe", countryCode: "eu", points: 205, teamUrl: "https://www.hltv.org/team/8637/gamerlegion", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "5005", rank: 21, name: "Virtus.pro", country: "Russia", countryCode: "ru", points: 192, teamUrl: "https://www.hltv.org/team/5005/virtuspro", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "6902", rank: 22, name: "paiN", country: "Brazil", countryCode: "br", points: 181, teamUrl: "https://www.hltv.org/team/6902/pain", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "10577", rank: 23, name: "Aurora", country: "Europe", countryCode: "eu", points: 169, teamUrl: "https://www.hltv.org/team/10577/aurora", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "4991", rank: 24, name: "Eternal Fire", country: "Turkey", countryCode: "tr", points: 158, teamUrl: "https://www.hltv.org/team/4991/eternal-fire", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "9928", rank: 25, name: "SAW", country: "Portugal", countryCode: "pt", points: 147, teamUrl: "https://www.hltv.org/team/9928/saw", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "11106", rank: 26, name: "M80", country: "United States", countryCode: "us", points: 138, teamUrl: "https://www.hltv.org/team/11106/m80", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "10831", rank: 27, name: "9z", country: "Argentina", countryCode: "ar", points: 127, teamUrl: "https://www.hltv.org/team/10831/9z", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "4608", rank: 28, name: "BetBoom", country: "Russia", countryCode: "ru", points: 118, teamUrl: "https://www.hltv.org/team/4608/betboom", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "11840", rank: 29, name: "MIBR", country: "Brazil", countryCode: "br", points: 109, teamUrl: "https://www.hltv.org/team/11840/mibr", matches: [], matchesLoaded: false, matchesLoading: false },
-  { id: "9455", rank: 30, name: "TheMongolz", country: "Mongolia", countryCode: "mn", points: 98, teamUrl: "https://www.hltv.org/team/9455/themongolz", matches: [], matchesLoaded: false, matchesLoading: false },
+const currentTop30Teams: Team[] = [
+  { id: "8297", rank: 1, name: "FURIA", country: "Brazil", countryCode: "br", points: 942, teamUrl: "https://www.hltv.org/team/8297/furia", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "9565", rank: 2, name: "Vitality", country: "France", countryCode: "fr", points: 870, teamUrl: "https://www.hltv.org/team/9565/vitality", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12296", rank: 3, name: "Falcons", country: "Saudi Arabia", countryCode: "sa", points: 657, teamUrl: "https://www.hltv.org/team/12296/falcons", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "4494", rank: 4, name: "MOUZ", country: "Europe", countryCode: "eu", points: 543, teamUrl: "https://www.hltv.org/team/4494/mouz", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "11893", rank: 5, name: "The MongolZ", country: "Mongolia", countryCode: "mn", points: 392, teamUrl: "https://www.hltv.org/team/11893/the-mongolz", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "7020", rank: 6, name: "Team Spirit", country: "Russia", countryCode: "ru", points: 366, teamUrl: "https://www.hltv.org/team/7020/spirit", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "4608", rank: 7, name: "Natus Vincere", country: "Ukraine", countryCode: "ua", points: 284, teamUrl: "https://www.hltv.org/team/4608/natus-vincere", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "11106", rank: 8, name: "Aurora", country: "Europe", countryCode: "eu", points: 257, teamUrl: "https://www.hltv.org/team/11106/aurora", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "5995", rank: 9, name: "G2 Esports", country: "Europe", countryCode: "eu", points: 229, teamUrl: "https://www.hltv.org/team/5995/g2", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "6902", rank: 10, name: "paiN Gaming", country: "Brazil", countryCode: "br", points: 213, teamUrl: "https://www.hltv.org/team/6902/pain", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "6665", rank: 11, name: "Astralis", country: "Denmark", countryCode: "dk", points: 211, teamUrl: "https://www.hltv.org/team/6665/astralis", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "6667", rank: 12, name: "FaZe Clan", country: "Europe", countryCode: "eu", points: 199, teamUrl: "https://www.hltv.org/team/6667/faze", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "10503", rank: 13, name: "3DMAX", country: "France", countryCode: "fr", points: 187, teamUrl: "https://www.hltv.org/team/10503/3dmax", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "5973", rank: 14, name: "Liquid", country: "North America", countryCode: "us", points: 163, teamUrl: "https://www.hltv.org/team/5973/liquid", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "10150", rank: 15, name: "Legacy", country: "Brazil", countryCode: "br", points: 153, teamUrl: "https://www.hltv.org/team/10150/legacy", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "11224", rank: 16, name: "B8", country: "Ukraine", countryCode: "ua", points: 124, teamUrl: "https://www.hltv.org/team/11224/b8", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12411", rank: 17, name: "Passion UA", country: "Ukraine", countryCode: "ua", points: 105, teamUrl: "https://www.hltv.org/team/12411/passion-ua", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "8637", rank: 18, name: "GamerLegion", country: "Europe", countryCode: "eu", points: 91, teamUrl: "https://www.hltv.org/team/8637/gamerlegion", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "7175", rank: 19, name: "Heroic", country: "Denmark", countryCode: "dk", points: 90, teamUrl: "https://www.hltv.org/team/7175/heroic", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "10567", rank: 20, name: "sAw", country: "Portugal", countryCode: "pt", points: 79, teamUrl: "https://www.hltv.org/team/10567/saw", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "5378", rank: 21, name: "Virtus.pro", country: "Russia", countryCode: "ru", points: 78, teamUrl: "https://www.hltv.org/team/5378/virtuspro", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12229", rank: 22, name: "PARIVISION", country: "Europe", countryCode: "eu", points: 76, teamUrl: "https://www.hltv.org/team/12229/parivision", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12068", rank: 23, name: "M80", country: "North America", countryCode: "us", points: 71, teamUrl: "https://www.hltv.org/team/12068/m80", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "4411", rank: 24, name: "NiP", country: "Sweden", countryCode: "se", points: 69, teamUrl: "https://www.hltv.org/team/4411/nip", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12308", rank: 25, name: "FUT Esports", country: "Turkey", countryCode: "tr", points: 68, teamUrl: "https://www.hltv.org/team/12308/fut-esports", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "9928", rank: 26, name: "Lynn Vision", country: "China", countryCode: "cn", points: 68, teamUrl: "https://www.hltv.org/team/9928/lynn-vision", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "4991", rank: 27, name: "fnatic", country: "Europe", countryCode: "eu", points: 64, teamUrl: "https://www.hltv.org/team/4991/fnatic", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "4863", rank: 28, name: "TYLOO", country: "China", countryCode: "cn", points: 64, teamUrl: "https://www.hltv.org/team/4863/tyloo", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "9455", rank: 29, name: "Imperial Esports", country: "Brazil", countryCode: "br", points: 61, teamUrl: "https://www.hltv.org/team/9455/imperial", matches: [], matchesLoaded: false, matchesLoading: false },
+  { id: "12406", rank: 30, name: "Gentle Mates", country: "France", countryCode: "fr", points: 59, teamUrl: "https://www.hltv.org/team/12406/gentle-mates", matches: [], matchesLoaded: false, matchesLoading: false },
 ];
 
-const events = [
-  "BLAST Premier World Final 2024",
-  "IEM Cologne 2024",
-  "ESL Pro League Season 19",
-  "PGL Major Copenhagen 2024",
-  "IEM Katowice 2024",
-  "BLAST Premier Spring Finals 2024",
-  "ESL Pro League Season 18",
-  "IEM Dallas 2024",
-  "Thunderpick World Championship 2024",
-  "BLAST Premier Fall Groups 2024",
-  "Perfect World Shanghai Major 2024",
-  "IEM Chengdu 2024",
-  "ESL Challenger League Season 47",
-  "CCT Online Finals #1",
-  "BLAST.tv Paris Major 2023",
-];
-
-const opponents = [
-  "Natus Vincere", "FaZe", "G2", "Vitality", "MOUZ", "ENCE", "Heroic", "Cloud9", 
-  "Spirit", "Liquid", "Astralis", "NIP", "BIG", "The MongolZ", "Complexity",
-  "Fnatic", "3DMAX", "Monte", "FURIA", "GamerLegion", "Virtus.pro", "paiN",
-  "Aurora", "Eternal Fire", "SAW", "M80", "9z", "BetBoom", "MIBR"
-];
-
-function generateMatchesForTeam(teamId: string, teamName: string, count: number = 100): Match[] {
-  const matches: Match[] = [];
-  const startDate = new Date();
-  
-  for (let i = 0; i < count; i++) {
-    const matchDate = new Date(startDate);
-    matchDate.setDate(matchDate.getDate() - Math.floor(i / 3));
+async function scrapeFromEGamersWorld(): Promise<Team[]> {
+  try {
+    const axiosInstance = createAxiosInstance();
+    await delay(1000 + Math.random() * 1000);
     
-    const opponent = opponents.filter(o => o !== teamName)[Math.floor(Math.random() * (opponents.length - 1))];
-    const event = events[Math.floor(Math.random() * events.length)];
+    const response = await axiosInstance.get(`${EGAMERSWORLD_URL}/counterstrike/teams/ranking/hltv`);
+    const $ = cheerio.load(response.data);
     
-    const isWin = Math.random() > 0.45;
-    const score1 = isWin ? 2 : Math.floor(Math.random() * 2);
-    const score2 = isWin ? Math.floor(Math.random() * 2) : 2;
+    const teams: Team[] = [];
     
-    matches.push({
-      id: `${teamId}-match-${i}`,
-      date: matchDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      opponent,
-      event,
-      result: `${score1}-${score2}`,
-      matchUrl: `https://www.hltv.org/matches/${2000000 + parseInt(teamId) * 100 + i}/match-details`,
-      mapScore: `${score1}:${score2}`,
+    $("table tbody tr").each((index: number, element: Element) => {
+      if (index >= 30) return false;
+      
+      const $row = $(element);
+      const cells = $row.find("td");
+      
+      if (cells.length < 3) return;
+      
+      const rankText = $(cells[0]).text().trim();
+      const rank = parseInt(rankText, 10) || index + 1;
+      
+      const $teamCell = $(cells[1]);
+      const teamLink = $teamCell.find("a");
+      const name = teamLink.text().trim();
+      const logoUrl = $teamCell.find("img").attr("src") || "";
+      
+      const pointsText = $(cells[2]).text().trim();
+      const points = parseInt(pointsText, 10) || undefined;
+      
+      const fallbackTeam = currentTop30Teams.find(t => 
+        t.name.toLowerCase() === name.toLowerCase() || 
+        t.name.toLowerCase().includes(name.toLowerCase()) ||
+        name.toLowerCase().includes(t.name.toLowerCase())
+      );
+      
+      const teamId = fallbackTeam?.id || `team-${rank}`;
+      const countryCode = fallbackTeam?.countryCode || "xx";
+      const country = fallbackTeam?.country || "Unknown";
+      const hltvTeamUrl = fallbackTeam?.teamUrl || `${HLTV_BASE_URL}/team/${teamId}/${name.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      teams.push({
+        id: teamId,
+        rank,
+        name,
+        logo: logoUrl || undefined,
+        country,
+        countryCode,
+        points,
+        teamUrl: hltvTeamUrl,
+        matches: [],
+        matchesLoaded: false,
+        matchesLoading: false,
+      });
     });
+    
+    return teams;
+  } catch (error) {
+    console.error("Error scraping from EGamersWorld:", (error as Error).message);
+    return [];
   }
-  
-  return matches;
 }
 
-export async function scrapeTop30Teams(): Promise<Team[]> {
+async function scrapeFromHLTV(): Promise<Team[]> {
   try {
+    const axiosInstance = createAxiosInstance();
+    await delay(1500 + Math.random() * 1500);
+    
     const response = await axiosInstance.get(`${HLTV_BASE_URL}/ranking/teams`);
     const $ = cheerio.load(response.data);
     
     const teams: Team[] = [];
     
-    $(".ranked-team").each((index, element) => {
+    $(".ranked-team").each((index: number, element: Element) => {
       if (index >= 30) return false;
       
       const $team = $(element);
@@ -144,8 +178,8 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
       let country = "";
       
       if (countryMatch) {
-        countryCode = countryMatch[1].toUpperCase();
-        country = countryCode;
+        countryCode = countryMatch[1].toLowerCase();
+        country = countryCode.toUpperCase();
       }
       
       const countryTitle = $team.find(".flag").attr("title") || "";
@@ -172,21 +206,34 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
       });
     });
 
-    if (teams.length > 0) {
-      return teams;
-    }
-    
-    console.log("Live scraping failed, returning cached data");
-    return [...top30TeamsData];
+    return teams;
   } catch (error) {
-    console.error("Error scraping HLTV teams (using fallback data):", (error as Error).message);
-    return [...top30TeamsData];
+    console.error("Error scraping from HLTV:", (error as Error).message);
+    return [];
   }
+}
+
+export async function scrapeTop30Teams(): Promise<Team[]> {
+  let teams = await scrapeFromEGamersWorld();
+  
+  if (teams.length === 0) {
+    console.log("EGamersWorld scraping failed, trying HLTV directly...");
+    teams = await scrapeFromHLTV();
+  }
+  
+  if (teams.length === 0) {
+    console.log("All scraping methods failed. Using cached HLTV ranking data (December 2025).");
+    return [...currentTop30Teams];
+  }
+  
+  console.log(`Successfully scraped ${teams.length} teams from live source`);
+  return teams;
 }
 
 export async function scrapeTeamMatches(teamId: string, limit: number = 100): Promise<Match[]> {
   try {
-    await delay(300);
+    const axiosInstance = createAxiosInstance();
+    await delay(500 + Math.random() * 500);
     
     const response = await axiosInstance.get(`${HLTV_BASE_URL}/results?team=${teamId}`);
     const $ = cheerio.load(response.data);
@@ -194,7 +241,7 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 100): Pr
     const matches: Match[] = [];
     let currentDate = "";
     
-    $(".results-sublist").each((_, sublist) => {
+    $(".results-sublist").each((_: number, sublist: Element) => {
       const $sublist = $(sublist);
       const headline = $sublist.find(".standard-headline").first().text().trim();
       const dateMatch = headline.match(/Results for (.+)/i);
@@ -202,7 +249,7 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 100): Pr
         currentDate = dateMatch[1];
       }
       
-      $sublist.find(".result-con").each((index, element) => {
+      $sublist.find(".result-con").each((index: number, element: Element) => {
         if (matches.length >= limit) return false;
         
         const $match = $(element);
@@ -241,18 +288,15 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 100): Pr
     });
 
     if (matches.length > 0) {
+      console.log(`Successfully scraped ${matches.length} matches for team ${teamId}`);
       return matches.slice(0, limit);
     }
     
-    const team = top30TeamsData.find(t => t.id === teamId);
-    const teamName = team?.name || "Team";
-    console.log(`Live match scraping failed for ${teamId}, generating sample data`);
-    return generateMatchesForTeam(teamId, teamName, limit);
+    console.log(`No matches found for team ${teamId}`);
+    return [];
   } catch (error) {
-    console.error(`Error scraping matches for team ${teamId} (using fallback):`, (error as Error).message);
-    const team = top30TeamsData.find(t => t.id === teamId);
-    const teamName = team?.name || "Team";
-    return generateMatchesForTeam(teamId, teamName, limit);
+    console.error(`Error scraping matches for team ${teamId}:`, (error as Error).message);
+    return [];
   }
 }
 
@@ -261,13 +305,13 @@ interface CachedData<T> {
   timestamp: number;
 }
 
-const cache = new Map<string, CachedData<any>>();
+const cache = new Map<string, CachedData<unknown>>();
 const CACHE_TTL = 10 * 60 * 1000;
 
 export function getCached<T>(key: string): T | null {
   const cached = cache.get(key);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data;
+    return cached.data as T;
   }
   return null;
 }

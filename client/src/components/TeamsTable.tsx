@@ -170,7 +170,7 @@ export function TeamsTable({
   return (
     <div className="w-full overflow-x-auto" data-testid="teams-table">
       <table className="w-full">
-        <thead className="sticky top-[7.5rem] z-30 bg-card border-b border-card-border">
+        <thead className="bg-card border-b border-card-border">
           <tr className="text-left text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             <th className="px-4 py-3 w-20">Rank</th>
             <th className="px-4 py-3">Team</th>
