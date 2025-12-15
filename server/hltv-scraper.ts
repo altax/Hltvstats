@@ -193,7 +193,7 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
   }
 }
 
-export async function scrapeTeamMatches(teamId: string, limit: number = 20): Promise<Match[]> {
+export async function scrapeTeamMatches(teamId: string, teamName: string, limit: number = 20): Promise<Match[]> {
   const cacheKey = `matches-${teamId}-${limit}`;
   const cached = getCached<Match[]>(cacheKey);
   if (cached) {
@@ -213,33 +213,37 @@ export async function scrapeTeamMatches(teamId: string, limit: number = 20): Pro
       const matchResult = result.result;
       
       const isTeam1 = team1?.id === Number(teamId);
-      const opponent = isTeam1 
-        ? (team2?.name || "Unknown")
-        : (team1?.name || "Unknown");
+      const team = isTeam1 ? team1 : team2;
+      const opponent = isTeam1 ? team2 : team1;
       
-      const scoreStr = matchResult 
-        ? `${matchResult.team1}-${matchResult.team2}`
-        : "N/A";
+      const team1Score = matchResult?.team1 || 0;
+      const team2Score = matchResult?.team2 || 0;
+      
+      let winner: string | undefined;
+      if (isTeam1) {
+        winner = team1Score > team2Score ? "team" : team1Score < team2Score ? "opponent" : "draw";
+      } else {
+        winner = team2Score > team1Score ? "team" : team2Score < team1Score ? "opponent" : "draw";
+      }
 
       const date = result.date 
-        ? new Date(result.date).toLocaleDateString("en-US", { 
-            year: "numeric", 
-            month: "long", 
-            day: "numeric" 
-          })
-        : "Unknown date";
+        ? new Date(result.date).toISOString()
+        : new Date().toISOString();
 
       const eventName = result.event?.name || result.eventName || "Unknown Event";
 
       return {
         id: String(result.id),
+        hltvMatchId: String(result.id),
         date,
-        opponent,
+        teamName: team?.name || teamName,
+        teamLogo: undefined,
+        opponentName: opponent?.name || "Unknown",
         opponentLogo: undefined,
+        winner,
+        mapScores: undefined,
         event: eventName,
-        result: scoreStr,
         matchUrl: `${HLTV_BASE_URL}/matches/${result.id}/${team1?.name?.toLowerCase().replace(/\s+/g, '-') || 'team1'}-vs-${team2?.name?.toLowerCase().replace(/\s+/g, '-') || 'team2'}`,
-        mapScore: undefined,
       };
     });
 

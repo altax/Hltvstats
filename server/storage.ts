@@ -37,8 +37,8 @@ export async function upsertTeam(team: InsertTeam): Promise<DbTeam | null> {
   }
 }
 
-export async function getMatchesByTeam(teamId: string): Promise<DbMatch[]> {
-  return db.select().from(matches).where(eq(matches.teamId, teamId)).orderBy(desc(matches.date));
+export async function getMatchesByTeam(teamName: string): Promise<DbMatch[]> {
+  return db.select().from(matches).where(eq(matches.teamName, teamName)).orderBy(desc(matches.date));
 }
 
 export async function insertMatches(matchList: InsertMatch[]): Promise<boolean> {
@@ -109,14 +109,16 @@ export async function saveTeamWithMatches(
     color?: string;
   },
   matchList: Array<{
-    id: string;
+    hltvMatchId: string;
     date: string;
-    opponent: string;
+    teamName: string;
+    teamLogo?: string;
+    opponentName: string;
     opponentLogo?: string;
+    winner?: string;
+    mapScores?: string;
     event: string;
-    result: string;
     matchUrl: string;
-    mapScore?: string;
   }>
 ): Promise<boolean> {
   const teamData: InsertTeam = {
@@ -134,25 +136,18 @@ export async function saveTeamWithMatches(
   const savedTeam = await upsertTeam(teamData);
   if (!savedTeam || !savedTeam.id) return false;
 
-  const dbMatches: InsertMatch[] = matchList.map((match) => {
-    const resultParts = match.result.split("-");
-    const team1Score = parseInt(resultParts[0]) || 0;
-    const team2Score = parseInt(resultParts[1]) || 0;
-    const isWin = team1Score > team2Score;
-
-    return {
-      teamId: savedTeam.id,
-      hltvMatchId: match.id,
-      date: new Date(match.date),
-      opponent: match.opponent,
-      opponentLogo: match.opponentLogo,
-      event: match.event,
-      result: match.result,
-      isWin,
-      matchUrl: match.matchUrl,
-      mapScore: match.mapScore,
-    };
-  });
+  const dbMatches: InsertMatch[] = matchList.map((match) => ({
+    hltvMatchId: match.hltvMatchId,
+    date: new Date(match.date),
+    teamName: match.teamName,
+    teamLogo: match.teamLogo,
+    opponentName: match.opponentName,
+    opponentLogo: match.opponentLogo,
+    winner: match.winner,
+    mapScores: match.mapScores,
+    event: match.event,
+    matchUrl: match.matchUrl,
+  }));
 
   return await insertMatches(dbMatches);
 }
@@ -182,7 +177,7 @@ export async function getTeamWithDetails(hltvId: string): Promise<{
   }
 
   const [teamMatches, teamPlayers] = await Promise.all([
-    getMatchesByTeam(team.id),
+    getMatchesByTeam(team.name),
     getPlayersByTeam(team.id),
   ]);
 

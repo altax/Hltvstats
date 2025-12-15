@@ -58,6 +58,7 @@ export async function registerRoutes(
   app.get("/api/teams/:teamId/matches", async (req, res) => {
     try {
       const { teamId } = req.params;
+      const teamName = req.query.teamName as string || "Unknown";
       const limit = Math.min(parseInt(req.query.limit as string) || 100, 100);
       
       const cacheKey = `matches-${teamId}-${limit}`;
@@ -67,7 +68,7 @@ export async function registerRoutes(
         return res.json(cached);
       }
 
-      const matches = await scrapeTeamMatches(teamId, limit);
+      const matches = await scrapeTeamMatches(teamId, teamName, limit);
       
       const response: MatchesResponse = {
         teamId,
@@ -119,7 +120,7 @@ export async function registerRoutes(
           let matchesData = getCached<MatchesResponse>(matchesCacheKey);
           
           if (!matchesData) {
-            const matches = await scrapeTeamMatches(team.id, 50);
+            const matches = await scrapeTeamMatches(team.id, team.name, 50);
             matchesData = { teamId: team.id, matches };
             setCache(matchesCacheKey, matchesData);
           }
@@ -136,14 +137,16 @@ export async function registerRoutes(
               logo: team.logo,
             },
             matchesData.matches.map(m => ({
-              id: m.id,
+              hltvMatchId: m.hltvMatchId,
               date: m.date,
-              opponent: m.opponent,
+              teamName: m.teamName,
+              teamLogo: m.teamLogo,
+              opponentName: m.opponentName,
               opponentLogo: m.opponentLogo,
+              winner: m.winner,
+              mapScores: m.mapScores,
               event: m.event,
-              result: m.result,
               matchUrl: m.matchUrl,
-              mapScore: m.mapScore,
             }))
           );
           
@@ -233,7 +236,7 @@ export async function registerRoutes(
       let matchesData = getCached<MatchesResponse>(matchesCacheKey);
       
       if (!matchesData) {
-        const matches = await scrapeTeamMatches(teamId, 100);
+        const matches = await scrapeTeamMatches(teamId, team.name, 100);
         matchesData = { teamId, matches };
         setCache(matchesCacheKey, matchesData);
       }
@@ -251,14 +254,16 @@ export async function registerRoutes(
           color: color,
         },
         matchesData.matches.map(m => ({
-          id: m.id,
+          hltvMatchId: m.hltvMatchId,
           date: m.date,
-          opponent: m.opponent,
+          teamName: m.teamName,
+          teamLogo: m.teamLogo,
+          opponentName: m.opponentName,
           opponentLogo: m.opponentLogo,
+          winner: m.winner,
+          mapScores: m.mapScores,
           event: m.event,
-          result: m.result,
           matchUrl: m.matchUrl,
-          mapScore: m.mapScore,
         }))
       );
       
