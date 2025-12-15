@@ -284,28 +284,34 @@ export async function registerRoutes(
 
   app.post("/api/supabase/sync-matches", async (req, res) => {
     try {
-      console.log("[Supabase Sync] Starting sync...");
+      console.log("[Supabase Sync] Starting sync for top 30 teams, 50 matches each...");
       
       const teams = await scrapeTop30Teams();
       let totalInserted = 0;
       let totalSkipped = 0;
+      const teamResults: { team: string; inserted: number; skipped: number }[] = [];
       
-      for (const team of teams.slice(0, 10)) {
-        console.log(`[Supabase Sync] Fetching matches for ${team.name}...`);
-        const matches = await scrapeTeamMatches(team.id, team.name, 20);
+      for (const team of teams) {
+        console.log(`[Supabase Sync] Fetching 50 matches for ${team.name} (${team.rank}/30)...`);
+        const matches = await scrapeTeamMatches(team.id, team.name, 50);
         
         const { inserted, skipped } = await saveMatchesToSupabase(matches);
         totalInserted += inserted;
         totalSkipped += skipped;
+        teamResults.push({ team: team.name, inserted, skipped });
         
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`[Supabase Sync] ${team.name}: ${inserted} inserted, ${skipped} skipped`);
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
       
+      console.log(`[Supabase Sync] Complete: ${totalInserted} total inserted, ${totalSkipped} total skipped`);
       res.json({ 
         success: true, 
         inserted: totalInserted, 
         skipped: totalSkipped,
-        message: `Synced matches: ${totalInserted} inserted, ${totalSkipped} skipped` 
+        teamsProcessed: teams.length,
+        message: `Synced ${teams.length} teams: ${totalInserted} matches inserted, ${totalSkipped} skipped`,
+        details: teamResults
       });
     } catch (error) {
       console.error("[Supabase Sync] Error:", error);
