@@ -39,6 +39,15 @@ task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [agent]
 expertMode = true
 integrations = ["javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_URL = "https://mzgotsqbqndjotqdykai.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im16Z290c3FicW5kam90cWR5a2FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3MjQ3NjAsImV4cCI6MjA4MTMwMDc2MH0.uEfuvrrUmApFCOhF85xTm7sSprtWKvFFJrYBHw-PaIU"
