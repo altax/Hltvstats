@@ -14,7 +14,13 @@ import {
   updateTeamColor,
   upsertPlayers,
 } from "./storage";
-import { testDemoDownload, getDemoLinkFromMatch } from "./demo-downloader";
+import { testDemoDownload, getDemoLinkFromMatch, downloadDemo } from "./demo-downloader";
+import {
+  getMatchesFromSupabase,
+  getMatchesByTeamFromSupabase,
+  getTeamsFromSupabase,
+  getMatchByIdFromSupabase,
+} from "./supabase";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -374,6 +380,199 @@ export async function registerRoutes(
       console.error("Error getting demo link:", error);
       res.status(500).json({ 
         error: "Failed to get demo link",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // ===== SUPABASE ENDPOINTS =====
+
+  // Get all matches from Supabase
+  app.get("/api/supabase/matches", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const matches = await getMatchesFromSupabase(limit);
+      res.json({ matches, count: matches.length });
+    } catch (error) {
+      console.error("Error fetching matches from Supabase:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch matches from Supabase",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get matches by team from Supabase
+  app.get("/api/supabase/teams/:hltvId/matches", async (req, res) => {
+    try {
+      const { hltvId } = req.params;
+      const matches = await getMatchesByTeamFromSupabase(hltvId);
+      res.json({ teamHltvId: hltvId, matches, count: matches.length });
+    } catch (error) {
+      console.error("Error fetching team matches from Supabase:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch team matches from Supabase",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get all teams from Supabase
+  app.get("/api/supabase/teams", async (req, res) => {
+    try {
+      const teams = await getTeamsFromSupabase();
+      res.json({ teams, count: teams.length });
+    } catch (error) {
+      console.error("Error fetching teams from Supabase:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch teams from Supabase",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Download demo for a specific match from Supabase
+  app.post("/api/supabase/matches/:matchId/download-demo", async (req, res) => {
+    try {
+      const matchId = parseInt(req.params.matchId);
+      
+      if (isNaN(matchId)) {
+        return res.status(400).json({ error: "Invalid match ID" });
+      }
+
+      const match = await getMatchByIdFromSupabase(matchId);
+      
+      if (!match) {
+        return res.status(404).json({ error: "Match not found in Supabase" });
+      }
+
+      if (!match.match_url) {
+        return res.status(400).json({ error: "Match URL not available" });
+      }
+
+      console.log(`[Demo] Starting download for match ${matchId}: ${match.match_url}`);
+      
+      // Get demo link from match page
+      const demoLink = await getDemoLinkFromMatch(match.match_url);
+      
+      if (!demoLink) {
+        return res.json({ 
+          matchId, 
+          matchUrl: match.match_url, 
+          demoLink: null, 
+          downloaded: false,
+          message: "Demo link not found on match page"
+        });
+      }
+
+      // Download the demo
+      const filename = `demo_${match.hltv_match_id}.rar`;
+      const filePath = await downloadDemo(demoLink, filename);
+      
+      res.json({ 
+        matchId, 
+        matchUrl: match.match_url, 
+        demoLink,
+        downloaded: !!filePath,
+        filePath 
+      });
+    } catch (error) {
+      console.error("Error downloading demo:", error);
+      res.status(500).json({ 
+        error: "Failed to download demo",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Batch download demos for multiple matches
+  app.post("/api/supabase/download-demos-batch", async (req, res) => {
+    try {
+      const { matchIds, limit } = req.body;
+      
+      let matches: Awaited<ReturnType<typeof getMatchesFromSupabase>>;
+      
+      if (matchIds && Array.isArray(matchIds)) {
+        // Download specific matches
+        const matchPromises = matchIds.map((id: number) => getMatchByIdFromSupabase(id));
+        const results = await Promise.all(matchPromises);
+        matches = results.filter((m): m is NonNullable<typeof m> => m !== null);
+      } else {
+        // Download recent matches
+        matches = await getMatchesFromSupabase(limit || 10);
+      }
+
+      const results: Array<{
+        matchId: number;
+        matchUrl: string;
+        demoLink: string | null;
+        downloaded: boolean;
+        filePath?: string;
+        error?: string;
+      }> = [];
+
+      for (const match of matches) {
+        try {
+          if (!match.match_url) {
+            results.push({
+              matchId: match.id,
+              matchUrl: "",
+              demoLink: null,
+              downloaded: false,
+              error: "No match URL"
+            });
+            continue;
+          }
+
+          console.log(`[Demo] Processing match ${match.id}: ${match.match_url}`);
+          
+          const demoLink = await getDemoLinkFromMatch(match.match_url);
+          
+          if (!demoLink) {
+            results.push({
+              matchId: match.id,
+              matchUrl: match.match_url,
+              demoLink: null,
+              downloaded: false,
+              error: "Demo link not found"
+            });
+            continue;
+          }
+
+          const filename = `demo_${match.hltv_match_id}.rar`;
+          const filePath = await downloadDemo(demoLink, filename);
+          
+          results.push({
+            matchId: match.id,
+            matchUrl: match.match_url,
+            demoLink,
+            downloaded: !!filePath,
+            filePath: filePath || undefined
+          });
+
+          // Add delay between downloads to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } catch (error) {
+          results.push({
+            matchId: match.id,
+            matchUrl: match.match_url || "",
+            demoLink: null,
+            downloaded: false,
+            error: error instanceof Error ? error.message : "Unknown error"
+          });
+        }
+      }
+
+      const successCount = results.filter(r => r.downloaded).length;
+      res.json({
+        success: true,
+        message: `Downloaded ${successCount}/${results.length} demos`,
+        results
+      });
+    } catch (error) {
+      console.error("Error batch downloading demos:", error);
+      res.status(500).json({ 
+        error: "Failed to batch download demos",
         message: error instanceof Error ? error.message : "Unknown error"
       });
     }
