@@ -6,15 +6,14 @@ import {
   getCached, 
   setCache 
 } from "./hltv-scraper";
-import type { Team, TeamsResponse, MatchesResponse } from "@shared/schema";
+import type { Team, TeamsResponse, MatchesResponse, InsertPlayer } from "@shared/schema";
 import {
   saveTeamWithMatches,
   getTeams,
   getTeamWithDetails,
   updateTeamColor,
   upsertPlayers,
-  DbPlayer,
-} from "./supabase";
+} from "./storage";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -90,12 +89,10 @@ export async function registerRoutes(
     }
   });
 
-  // Sync all top 30 teams to Supabase
   app.post("/api/db/sync-all", async (req, res) => {
     try {
-      console.log("[Sync] Starting to sync all teams to Supabase...");
+      console.log("[Sync] Starting to sync all teams to database...");
       
-      // Get teams from HLTV
       const cacheKey = "teams-top30";
       let teamsResponse = getCached<TeamsResponse>(cacheKey);
       
@@ -111,7 +108,6 @@ export async function registerRoutes(
         try {
           console.log(`[Sync] Processing team: ${team.name}`);
           
-          // Get matches for this team
           const matchesCacheKey = `matches-${team.id}-100`;
           let matchesData = getCached<MatchesResponse>(matchesCacheKey);
           
@@ -121,7 +117,6 @@ export async function registerRoutes(
             setCache(matchesCacheKey, matchesData);
           }
           
-          // Save to Supabase
           const success = await saveTeamWithMatches(
             {
               id: team.id,
@@ -148,7 +143,6 @@ export async function registerRoutes(
           results.push({ team: team.name, success });
           console.log(`[Sync] ${team.name}: ${success ? 'OK' : 'FAILED'}`);
           
-          // Small delay to avoid rate limiting
           await new Promise(resolve => setTimeout(resolve, 500));
         } catch (error) {
           console.error(`[Sync] Error syncing ${team.name}:`, error);
@@ -177,13 +171,12 @@ export async function registerRoutes(
     }
   });
 
-  // Supabase endpoints - get all teams from database
   app.get("/api/db/teams", async (req, res) => {
     try {
       const teams = await getTeams();
       res.json({ teams, count: teams.length });
     } catch (error) {
-      console.error("Error fetching teams from Supabase:", error);
+      console.error("Error fetching teams from database:", error);
       res.status(500).json({ 
         error: "Failed to fetch teams from database",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -191,7 +184,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get single team with matches and players
   app.get("/api/db/teams/:hltvId", async (req, res) => {
     try {
       const { hltvId } = req.params;
@@ -211,13 +203,11 @@ export async function registerRoutes(
     }
   });
 
-  // Save team with matches to Supabase
   app.post("/api/db/teams/:teamId/save", async (req, res) => {
     try {
       const { teamId } = req.params;
       const { color } = req.body;
       
-      // Get team data from cache or scrape
       const cacheKey = "teams-top30";
       let teamsResponse = getCached<TeamsResponse>(cacheKey);
       
@@ -232,7 +222,6 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Team not found" });
       }
       
-      // Get matches
       const matchesCacheKey = `matches-${teamId}-100`;
       let matchesData = getCached<MatchesResponse>(matchesCacheKey);
       
@@ -242,7 +231,6 @@ export async function registerRoutes(
         setCache(matchesCacheKey, matchesData);
       }
       
-      // Save to Supabase
       const success = await saveTeamWithMatches(
         {
           id: team.id,
@@ -281,7 +269,6 @@ export async function registerRoutes(
     }
   });
 
-  // Update team color
   app.patch("/api/db/teams/:hltvId/color", async (req, res) => {
     try {
       const { hltvId } = req.params;
@@ -307,36 +294,34 @@ export async function registerRoutes(
     }
   });
 
-  // Save players for a team
   app.post("/api/db/teams/:hltvId/players", async (req, res) => {
     try {
       const { hltvId } = req.params;
-      const { players } = req.body;
+      const { players: playerData } = req.body;
       
-      if (!players || !Array.isArray(players)) {
+      if (!playerData || !Array.isArray(playerData)) {
         return res.status(400).json({ error: "Players array is required" });
       }
       
-      // Get team from database to get the UUID
       const teamDetails = await getTeamWithDetails(hltvId);
       if (!teamDetails.team) {
         return res.status(404).json({ error: "Team not found. Save the team first." });
       }
       
-      const dbPlayers: DbPlayer[] = players.map((p: any) => ({
-        team_id: teamDetails.team!.id!,
+      const dbPlayers: InsertPlayer[] = playerData.map((p: any) => ({
+        teamId: teamDetails.team!.id,
         nickname: p.nickname,
-        real_name: p.realName,
+        realName: p.realName,
         country: p.country,
-        country_code: p.countryCode,
+        countryCode: p.countryCode,
         role: p.role,
-        is_active: p.isActive !== false,
+        isActive: p.isActive !== false,
       }));
       
       const success = await upsertPlayers(dbPlayers);
       
       if (success) {
-        res.json({ success: true, message: `${players.length} players saved` });
+        res.json({ success: true, message: `${playerData.length} players saved` });
       } else {
         res.status(500).json({ error: "Failed to save players" });
       }

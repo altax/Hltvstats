@@ -161,7 +161,7 @@ export async function scrapeTop30Teams(): Promise<Team[]> {
       
       const location = teamData.location || teamData.country;
       let countryName = typeof location === 'object' ? location.name : (location || null);
-      let countryCode = countryName ? getCountryCode(countryName) : null;
+      let countryCode: string = countryName ? getCountryCode(countryName) : "xx";
       
       if (!countryName || countryCode === "xx") {
         countryName = fallback?.country || "Unknown";
