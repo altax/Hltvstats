@@ -20,6 +20,7 @@ import {
   getMatchesByTeamFromSupabase,
   getTeamsFromSupabase,
   getMatchByIdFromSupabase,
+  saveMatchesToSupabase,
 } from "./supabase";
 
 export async function registerRoutes(
@@ -276,6 +277,40 @@ export async function registerRoutes(
       console.error("Error saving team:", error);
       res.status(500).json({ 
         error: "Failed to save team",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.post("/api/supabase/sync-matches", async (req, res) => {
+    try {
+      console.log("[Supabase Sync] Starting sync...");
+      
+      const teams = await scrapeTop30Teams();
+      let totalInserted = 0;
+      let totalSkipped = 0;
+      
+      for (const team of teams.slice(0, 10)) {
+        console.log(`[Supabase Sync] Fetching matches for ${team.name}...`);
+        const matches = await scrapeTeamMatches(team.id, team.name, 20);
+        
+        const { inserted, skipped } = await saveMatchesToSupabase(matches);
+        totalInserted += inserted;
+        totalSkipped += skipped;
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      res.json({ 
+        success: true, 
+        inserted: totalInserted, 
+        skipped: totalSkipped,
+        message: `Synced matches: ${totalInserted} inserted, ${totalSkipped} skipped` 
+      });
+    } catch (error) {
+      console.error("[Supabase Sync] Error:", error);
+      res.status(500).json({ 
+        error: "Sync failed",
         message: error instanceof Error ? error.message : "Unknown error"
       });
     }

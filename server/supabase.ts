@@ -97,3 +97,54 @@ export async function getMatchByIdFromSupabase(matchId: number): Promise<Supabas
 
   return data;
 }
+
+export async function saveMatchesToSupabase(matches: Array<{
+  hltvMatchId: string;
+  date: string;
+  teamName: string;
+  teamLogo?: string;
+  opponentName: string;
+  opponentLogo?: string;
+  winner?: string;
+  mapScores?: string;
+  event: string;
+  matchUrl: string;
+}>): Promise<{ inserted: number; skipped: number }> {
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const match of matches) {
+    const { data: existing } = await supabase
+      .from("matches")
+      .select("id")
+      .eq("hltv_match_id", match.hltvMatchId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      skipped++;
+      continue;
+    }
+
+    const { error } = await supabase.from("matches").insert({
+      hltv_match_id: match.hltvMatchId,
+      date: match.date,
+      team_name: match.teamName,
+      team_logo: match.teamLogo || null,
+      opponent_name: match.opponentName,
+      opponent_logo: match.opponentLogo || null,
+      winner: match.winner || null,
+      map_scores: match.mapScores || null,
+      event: match.event,
+      match_url: match.matchUrl,
+    });
+
+    if (error) {
+      console.error("[Supabase] Error inserting match:", error);
+    } else {
+      inserted++;
+    }
+  }
+
+  console.log(`[Supabase] Saved ${inserted} matches, skipped ${skipped} duplicates`);
+  return { inserted, skipped };
+}
