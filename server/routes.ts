@@ -390,7 +390,7 @@ export async function registerRoutes(
   // Get all matches from Supabase
   app.get("/api/supabase/matches", async (req, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 100;
+      const limit = parseInt(req.query.limit as string) || 1000;
       const matches = await getMatchesFromSupabase(limit);
       res.json({ matches, count: matches.length });
     } catch (error) {

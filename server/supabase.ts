@@ -22,6 +22,8 @@ export interface SupabaseMatch {
   match_url: string;
   map_score: string | null;
   created_at: string;
+  team_name?: string;
+  team_logo?: string | null;
 }
 
 export interface SupabaseTeam {
@@ -39,10 +41,13 @@ export interface SupabaseTeam {
   updated_at: string;
 }
 
-export async function getMatchesFromSupabase(limit: number = 100): Promise<SupabaseMatch[]> {
+export async function getMatchesFromSupabase(limit: number = 1000): Promise<SupabaseMatch[]> {
   const { data, error } = await supabase
     .from("matches")
-    .select("*")
+    .select(`
+      *,
+      teams:team_id (name, logo_url)
+    `)
     .order("date", { ascending: false })
     .limit(limit);
 
@@ -51,7 +56,12 @@ export async function getMatchesFromSupabase(limit: number = 100): Promise<Supab
     throw error;
   }
 
-  return data || [];
+  return (data || []).map((match: any) => ({
+    ...match,
+    team_name: match.teams?.name || "Unknown Team",
+    team_logo: match.teams?.logo_url || null,
+    teams: undefined,
+  }));
 }
 
 export async function getMatchesByTeamFromSupabase(teamHltvId: string): Promise<SupabaseMatch[]> {

@@ -31,6 +31,8 @@ interface SupabaseMatch {
   match_url: string;
   map_score: string | null;
   created_at: string;
+  team_name?: string;
+  team_logo?: string | null;
 }
 
 interface SupabaseTeam {
@@ -118,10 +120,8 @@ export default function Demos() {
     },
   });
 
-  const getTeamName = (teamId: string): string => {
-    if (!teamsData?.teams) return "Unknown Team";
-    const team = teamsData.teams.find(t => t.id === teamId);
-    return team?.name || "Unknown Team";
+  const getTeamName = (match: SupabaseMatch): string => {
+    return match.team_name || "Unknown Team";
   };
 
   const formatDate = (dateStr: string): string => {
@@ -141,7 +141,7 @@ export default function Demos() {
     return (
       match.opponent.toLowerCase().includes(query) ||
       match.event.toLowerCase().includes(query) ||
-      getTeamName(match.team_id).toLowerCase().includes(query)
+      getTeamName(match).toLowerCase().includes(query)
     );
   });
 
@@ -244,7 +244,7 @@ export default function Demos() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-medium truncate" data-testid={`text-team-${match.id}`}>
-                            {getTeamName(match.team_id)}
+                            {getTeamName(match)}
                           </span>
                           <span className="text-muted-foreground">vs</span>
                           <span className="font-medium truncate" data-testid={`text-opponent-${match.id}`}>
