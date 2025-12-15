@@ -14,6 +14,7 @@ import {
   updateTeamColor,
   upsertPlayers,
 } from "./storage";
+import { testDemoDownload, getDemoLinkFromMatch } from "./demo-downloader";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -329,6 +330,50 @@ export async function registerRoutes(
       console.error("Error saving players:", error);
       res.status(500).json({ 
         error: "Failed to save players",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Test demo download
+  app.post("/api/demo/test", async (req, res) => {
+    try {
+      const { matchUrl } = req.body;
+      
+      if (!matchUrl) {
+        return res.status(400).json({ error: "matchUrl is required" });
+      }
+      
+      console.log(`[Demo] Testing download for: ${matchUrl}`);
+      const result = await testDemoDownload(matchUrl);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing demo download:", error);
+      res.status(500).json({ 
+        error: "Failed to test demo download",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get demo link from match URL
+  app.post("/api/demo/link", async (req, res) => {
+    try {
+      const { matchUrl } = req.body;
+      
+      if (!matchUrl) {
+        return res.status(400).json({ error: "matchUrl is required" });
+      }
+      
+      console.log(`[Demo] Getting demo link for: ${matchUrl}`);
+      const demoLink = await getDemoLinkFromMatch(matchUrl);
+      
+      res.json({ matchUrl, demoLink });
+    } catch (error) {
+      console.error("Error getting demo link:", error);
+      res.status(500).json({ 
+        error: "Failed to get demo link",
         message: error instanceof Error ? error.message : "Unknown error"
       });
     }
