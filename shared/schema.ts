@@ -19,16 +19,16 @@ export const teams = pgTable("teams", {
 
 export const matches = pgTable("matches", {
   id: serial("id").primaryKey(),
-  teamId: uuid("team_id").references(() => teams.id, { onDelete: "cascade" }),
   hltvMatchId: varchar("hltv_match_id", { length: 50 }).notNull(),
   date: timestamp("date", { withTimezone: true }),
-  opponent: varchar("opponent", { length: 255 }),
+  teamName: varchar("team_name", { length: 255 }).notNull(),
+  teamLogo: text("team_logo"),
+  opponentName: varchar("opponent_name", { length: 255 }).notNull(),
   opponentLogo: text("opponent_logo"),
+  winner: varchar("winner", { length: 50 }),
+  mapScores: text("map_scores"),
   event: varchar("event", { length: 255 }),
-  result: varchar("result", { length: 50 }),
-  isWin: boolean("is_win").default(false),
   matchUrl: text("match_url"),
-  mapScore: varchar("map_score", { length: 50 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -68,13 +68,16 @@ export type DbPlayer = typeof players.$inferSelect;
 
 export const matchSchema = z.object({
   id: z.string(),
+  hltvMatchId: z.string(),
   date: z.string(),
-  opponent: z.string(),
+  teamName: z.string(),
+  teamLogo: z.string().optional(),
+  opponentName: z.string(),
   opponentLogo: z.string().optional(),
+  winner: z.string().optional(),
+  mapScores: z.string().optional(),
   event: z.string(),
-  result: z.string(),
   matchUrl: z.string(),
-  mapScore: z.string().optional(),
 });
 
 export const teamSchema = z.object({

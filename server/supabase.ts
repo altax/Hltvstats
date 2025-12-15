@@ -11,19 +11,17 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
 
 export interface SupabaseMatch {
   id: number;
-  team_id: string;
   hltv_match_id: string;
   date: string;
-  opponent: string;
+  team_name: string;
+  team_logo: string | null;
+  opponent_name: string;
   opponent_logo: string | null;
+  winner: string | null;
+  map_scores: string | null;
   event: string;
-  result: string;
-  is_win: boolean;
   match_url: string;
-  map_score: string | null;
   created_at: string;
-  team_name?: string;
-  team_logo?: string | null;
 }
 
 export interface SupabaseTeam {
@@ -44,10 +42,7 @@ export interface SupabaseTeam {
 export async function getMatchesFromSupabase(limit: number = 1000): Promise<SupabaseMatch[]> {
   const { data, error } = await supabase
     .from("matches")
-    .select(`
-      *,
-      teams:team_id (name, logo_url)
-    `)
+    .select("*")
     .order("date", { ascending: false })
     .limit(limit);
 
@@ -56,30 +51,14 @@ export async function getMatchesFromSupabase(limit: number = 1000): Promise<Supa
     throw error;
   }
 
-  return (data || []).map((match: any) => ({
-    ...match,
-    team_name: match.teams?.name || "Unknown Team",
-    team_logo: match.teams?.logo_url || null,
-    teams: undefined,
-  }));
+  return data || [];
 }
 
-export async function getMatchesByTeamFromSupabase(teamHltvId: string): Promise<SupabaseMatch[]> {
-  const { data: team, error: teamError } = await supabase
-    .from("teams")
-    .select("id")
-    .eq("hltv_id", teamHltvId)
-    .single();
-
-  if (teamError || !team) {
-    console.error("[Supabase] Team not found:", teamError);
-    return [];
-  }
-
+export async function getMatchesByTeamFromSupabase(teamName: string): Promise<SupabaseMatch[]> {
   const { data, error } = await supabase
     .from("matches")
     .select("*")
-    .eq("team_id", team.id)
+    .eq("team_name", teamName)
     .order("date", { ascending: false });
 
   if (error) {
