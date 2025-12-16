@@ -295,7 +295,7 @@ export async function registerRoutes(
         console.log(`[Supabase Sync] Fetching 50 matches for ${team.name} (${team.rank}/30)...`);
         const matches = await scrapeTeamMatches(team.id, team.name, 50);
         
-        const { inserted, skipped } = await saveMatchesToSupabase(matches);
+        const { inserted, skipped } = await saveMatchesToSupabase(team.id, matches);
         totalInserted += inserted;
         totalSkipped += skipped;
         teamResults.push({ team: team.name, inserted, skipped });

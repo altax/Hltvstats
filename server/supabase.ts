@@ -98,18 +98,21 @@ export async function getMatchByIdFromSupabase(matchId: number): Promise<Supabas
   return data;
 }
 
-export async function saveMatchesToSupabase(matches: Array<{
-  hltvMatchId: string;
-  date: string;
-  teamName: string;
-  teamLogo?: string;
-  opponentName: string;
-  opponentLogo?: string;
-  winner?: string;
-  mapScores?: string;
-  event: string;
-  matchUrl: string;
-}>): Promise<{ inserted: number; skipped: number }> {
+export async function saveMatchesToSupabase(
+  teamId: string,
+  matches: Array<{
+    hltvMatchId: string;
+    date: string;
+    teamName: string;
+    teamLogo?: string;
+    opponentName: string;
+    opponentLogo?: string;
+    winner?: string;
+    mapScores?: string;
+    event: string;
+    matchUrl: string;
+  }>
+): Promise<{ inserted: number; skipped: number }> {
   let inserted = 0;
   let skipped = 0;
 
@@ -118,6 +121,7 @@ export async function saveMatchesToSupabase(matches: Array<{
       .from("matches")
       .select("id")
       .eq("hltv_match_id", match.hltvMatchId)
+      .eq("team_id", teamId)
       .limit(1);
 
     if (existing && existing.length > 0) {
@@ -126,6 +130,7 @@ export async function saveMatchesToSupabase(matches: Array<{
     }
 
     const { error } = await supabase.from("matches").insert({
+      team_id: teamId,
       hltv_match_id: match.hltvMatchId,
       date: match.date,
       team_name: match.teamName,
@@ -145,6 +150,6 @@ export async function saveMatchesToSupabase(matches: Array<{
     }
   }
 
-  console.log(`[Supabase] Saved ${inserted} matches, skipped ${skipped} duplicates`);
+  console.log(`[Supabase] Saved ${inserted} matches for team ${teamId}, skipped ${skipped} duplicates`);
   return { inserted, skipped };
 }
